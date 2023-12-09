@@ -26,6 +26,7 @@ import socket
 import ssl
 import sys
 import threading
+import time
 import timeit
 import xml.etree.ElementTree as ET
 from argparse import SUPPRESS as ARG_SUPPRESS
@@ -310,7 +311,7 @@ def build_request(url: str, data=None, headers=None, bump=0):
 
     # WHO YOU GONNA CALL? CACHE BUSTERS!
     if urlparts.scheme == "http":
-        x = f"{int(timeit.time.time() * 1000)}.{bump}"
+        x = f"{int(time.time() * 1000)}.{bump}"
         query = parse_qs(urlparts.query)
         query["x"] = x
         urlparts = urlparts._replace(query=urlencode(query, doseq=True))
@@ -936,7 +937,7 @@ class Speedtest:
         for server in servers:
             cum = []
             url = os.path.dirname(server["url"])
-            stamp = int(timeit.time.time() * 1000)
+            stamp = int(time.time() * 1000)
             latency_url = f"{url}/latency.txt?x={stamp}"
             for i in range(0, 3):
                 this_latency_url = f"{latency_url}.{i}"
@@ -1024,7 +1025,7 @@ class Speedtest:
                     shutdown_event=self._shutdown_event,
                 )
                 while in_flight["threads"] >= max_threads:
-                    timeit.time.sleep(0.001)
+                    time.sleep(0.001)
                 catch_thread_operation(
                     shutdown_event=self._shutdown_event,
                     target=thread.start,
@@ -1123,7 +1124,7 @@ class Speedtest:
                     shutdown_event=self._shutdown_event,
                 )
                 while in_flight["threads"] >= max_threads:
-                    timeit.time.sleep(0.001)
+                    time.sleep(0.001)
                 catch_thread_operation(
                     shutdown_event=self._shutdown_event,
                     target=thread.start,
