@@ -805,7 +805,7 @@ class Speedtest:
 
         return self.config
 
-    def get_servers(self, servers=None, exclude=None, search=None):
+    def get_servers(self, servers=None, exclude=None, search=None, limit=10):
         """Retrieve a the list of speedtest.net servers, optionally filtered
         to servers matching those specified in the ``servers`` argument
         """
@@ -830,7 +830,7 @@ class Speedtest:
         urlq = {
             "engine": "js",
             "https_functional": "true",
-            "limit": 10,
+            "limit": limit,
         }
         if search:
             urlq["search"] = search
@@ -874,7 +874,7 @@ class Speedtest:
                     continue
 
                 self.servers.append(server)
- 
+
         except ServersRetrievalError:
             pass
 
@@ -1246,6 +1246,12 @@ def parse_args():
         help="Display a list of speedtest.net servers sorted by distance",
     )
     parser.add_argument(
+        "--limit",
+        default=10,
+        type=int,
+        help="Maximum number of servers to get. Default 10",
+    )
+    parser.add_argument(
         "--server",
         type=int,
         action="append",
@@ -1255,7 +1261,7 @@ def parse_args():
         "--search",
         type=str,
         action="store",
-        nargs='*',
+        nargs="*",
         help="Search for a server with the provided string in the name",
     )
     parser.add_argument(
@@ -1402,7 +1408,7 @@ def shell():
 
     if args.list:
         try:
-            speedtest.get_servers(search=args.search)
+            speedtest.get_servers(search=args.search, limit=args.limit)
         except (ServersRetrievalError,) + HTTP_ERRORS:
             printer("Cannot retrieve speedtest server list", error=True)
             raise SpeedtestCLIError(get_exception())
@@ -1427,7 +1433,12 @@ def shell():
 
     printer("Retrieving speedtest.net server list...", quiet)
     try:
-        speedtest.get_servers(servers=args.server, exclude=args.exclude, search=args.search)
+        speedtest.get_servers(
+            servers=args.server,
+            exclude=args.exclude,
+            search=args.search,
+            limit=args.limit,
+        )
     except NoMatchedServers:
         raise SpeedtestCLIError(
             "No matched servers: %s" % ", ".join("%s" % s for s in args.server)
