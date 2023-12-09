@@ -273,13 +273,6 @@ class GzipDecodedResponse(GZIP_BASE):
             self.io.close()
 
 
-def get_exception():
-    """Helper function to work with py2.4-py3 for getting the current
-    exception in a try/except block
-    """
-    return sys.exc_info()[1]
-
-
 def build_user_agent():
     """Build a Mozilla/5.0 compatible User-Agent string"""
 
@@ -340,9 +333,8 @@ def catch_request(request, *, opener: OpenerDirector):
         if request.get_full_url() != uh.geturl():
             printer(f"Redirected to {uh.geturl()}", debug=True)
         return uh, False
-    except HTTP_ERRORS:
-        e = get_exception()
-        return None, e
+    except HTTP_ERRORS as exc:
+        return None, exc
 
 
 def catch_thread_operation(
@@ -457,11 +449,11 @@ class HTTPUploaderData:
             self._data = BytesIO(
                 (f"content1={(chars * multiplier)[0:int(self.length) - 9]}").encode()
             )
-        except MemoryError:
+        except MemoryError as exc:
             raise SpeedtestCLIError(
                 "Insufficient memory to pre-allocate upload data. Please "
                 "use --no-pre-allocate"
-            )
+            ) from exc
 
     @property
     def data(self):
@@ -476,8 +468,7 @@ class HTTPUploaderData:
             chunk = self.data.read(n)
             self.total.append(len(chunk))
             return chunk
-        else:
-            raise SpeedtestUploadTimeout()
+        raise SpeedtestUploadTimeout()
 
     def __len__(self):
         return self.length
@@ -649,7 +640,7 @@ class SpeedtestResults:
         ]
         out = StringIO()
         writer = csv.writer(out, delimiter=delimiter, lineterminator="")
-        writer.writerow([v for v in row])
+        writer.writerow(row)
         return out.getvalue()
 
     def csv(self, delimiter=","):
@@ -670,7 +661,7 @@ class SpeedtestResults:
             self._share or "",
             self.client["ip"],
         ]
-        writer.writerow([v for v in row])
+        writer.writerow(row)
         return out.getvalue()
 
     def json(self, pretty=False):
@@ -741,8 +732,8 @@ class Speedtest:
         while 1:
             try:
                 configxml_list.append(stream.read(1024))
-            except (OSError, EOFError):
-                raise ConfigRetrievalError(get_exception())
+            except (OSError, EOFError) as exc:
+                raise ConfigRetrievalError() from exc
             if len(configxml_list[-1]) == 0:
                 break
         stream.close()
@@ -755,9 +746,10 @@ class Speedtest:
 
         try:
             root = ET.fromstringlist(configxml_list)
-        except ET.ParseError:
-            e = get_exception()
-            raise SpeedtestConfigError(f"Malformed speedtest.net configuration: {e}")
+        except ET.ParseError as exc:
+            raise SpeedtestConfigError(
+                f"Malformed speedtest.net configuration"
+            ) from exc
         server_config = root.find("server-config").attrib
         download = root.find("download").attrib
         upload = root.find("upload").attrib
@@ -822,10 +814,10 @@ class Speedtest:
             for i, s in enumerate(server_list):
                 try:
                     server_list[i] = int(s)
-                except ValueError:
+                except ValueError as exc:
                     raise InvalidServerIDType(
                         f"{s} is an invalid server type, must be int"
-                    )
+                    ) from exc
 
         url = "https://www.speedtest.net/api/js/servers"
         urlq = {
@@ -856,8 +848,8 @@ class Speedtest:
 
             try:
                 serversjson = json.load(stream)
-            except ValueError:
-                raise SpeedtestServersError(get_exception())
+            except ValueError as exc:
+                raise SpeedtestServersError() from exc
 
             stream.close()
             uh.close()
@@ -923,9 +915,8 @@ class Speedtest:
                     h.request("GET", path, headers=headers)
                     r = h.getresponse()
                     total = timeit.default_timer() - start
-                except HTTP_ERRORS:
-                    e = get_exception()
-                    printer(f"ERROR: {e!r}", debug=True)
+                except HTTP_ERRORS as exc:
+                    printer(f"ERROR: {exc!r}", debug=True)
                     cum.append(3600)
                     continue
 
@@ -941,10 +932,10 @@ class Speedtest:
 
         try:
             fastest = sorted(results.keys())[0]
-        except IndexError:
+        except IndexError as exc:
             raise SpeedtestBestServerFailure(
                 "Unable to connect to servers to test latency."
-            )
+            ) from exc
         best = results[fastest]
         best["latency"] = fastest
 
@@ -1358,15 +1349,8 @@ def shell():
     if debug:
         DEBUG = True
 
-    if args.simple or args.csv or args.json:
-        quiet = True
-    else:
-        quiet = False
-
-    if args.csv or args.json:
-        machine_format = True
-    else:
-        machine_format = False
+    quiet = args.simple or args.csv or args.json
+    machine_format = args.csv or args.json
 
     if args.search:
         args.search = " ".join(args.search)
@@ -1385,16 +1369,16 @@ def shell():
             verify=args.verify,
             shutdown_event=shutdown_event,
         )
-    except (ConfigRetrievalError,) + HTTP_ERRORS:
+    except (ConfigRetrievalError,) + HTTP_ERRORS as exc:
         printer("Cannot retrieve speedtest configuration", error=True)
-        raise SpeedtestCLIError(get_exception())
+        raise SpeedtestCLIError() from exc
 
     if args.list:
         try:
             speedtest.get_servers(search=args.search, limit=args.limit)
-        except (ServersRetrievalError,) + HTTP_ERRORS:
+        except (ServersRetrievalError,) + HTTP_ERRORS as exc:
             printer("Cannot retrieve speedtest server list", error=True)
-            raise SpeedtestCLIError(get_exception())
+            raise SpeedtestCLIError() from exc
 
         for server in sorted(speedtest.servers, key=lambda s: s["distance"]):
             line = (
@@ -1403,9 +1387,8 @@ def shell():
             )
             try:
                 printer(line)
-            except OSError:
-                e = get_exception()
-                if e.errno != errno.EPIPE:
+            except OSError as exc:
+                if exc.errno != errno.EPIPE:
                     raise
         sys.exit(0)
 
@@ -1422,18 +1405,18 @@ def shell():
             search=args.search,
             limit=args.limit,
         )
-    except NoMatchedServers:
+    except NoMatchedServers as exc:
         raise SpeedtestCLIError(
             "No matched servers: %s" % ", ".join("%s" % s for s in args.server)
-        )
-    except (ServersRetrievalError,) + HTTP_ERRORS:
+        ) from exc
+    except (ServersRetrievalError,) + HTTP_ERRORS as exc:
         printer("Cannot retrieve speedtest server list", error=True)
-        raise SpeedtestCLIError(get_exception())
-    except InvalidServerIDType:
+        raise SpeedtestCLIError() from exc
+    except InvalidServerIDType as exc:
         raise SpeedtestCLIError(
             "%s is an invalid server type, must "
             "be an int" % ", ".join("%s" % s for s in args.server)
-        )
+        ) from exc
 
     if args.server and len(args.server) == 1:
         printer("Retrieving information for the selected server...", quiet)
@@ -1506,12 +1489,11 @@ def main():
     except KeyboardInterrupt:
         printer("\nCancelling...", error=True)
     except (SpeedtestException, SystemExit) as exc:
-        e = get_exception()
         # Ignore a successful exit, or argparse exit
-        if getattr(e, "code", 1) not in (0, 2):
-            msg = f"{e}"
+        if getattr(exc, "code", 1) not in (0, 2):
+            msg = f"{exc}"
             if not msg:
-                msg = f"{e!r}"
+                msg = f"{exc!r}"
             raise SystemExit(f"ERROR: {msg}") from exc
 
 
