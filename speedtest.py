@@ -147,7 +147,8 @@ class SpeedtestHTTPSConnection(HTTPSConnection):
 def _build_connection(connection, **kwargs):
     """Called from ``http(s)_open`` methods of ``SpeedtestHTTP(S)Handler``"""
 
-    def inner(host, **kwargs):
+    def inner(host, **kwargs_inner):
+        kwargs.update(kwargs_inner)
         return connection(host, **kwargs)
 
     return inner
