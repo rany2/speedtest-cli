@@ -1307,22 +1307,6 @@ def parse_args():
     return options
 
 
-def validate_optional_args(args):
-    """Check if an argument was provided that depends on a module that may
-    not be part of the Python standard library.
-
-    If such an argument is supplied, and the module does not exist, exit
-    with an error stating which module is missing.
-    """
-    optional_args = {
-        "json": ("json/simplejson python module", json),
-    }
-
-    for arg, info in optional_args.items():
-        if getattr(args, arg, False) and info[1] is None:
-            raise SystemExit(f"{info[0]} is not installed. --{arg} is unavailable")
-
-
 def printer(string, quiet=False, debug=False, error=False, **kwargs):
     """Helper function print a string with various features"""
 
@@ -1366,8 +1350,6 @@ def shell():
 
     if args.csv_header:
         csv_header(args.csv_delimiter)
-
-    validate_optional_args(args)
 
     debug = getattr(args, "debug", False)
     if debug == "SUPPRESSHELP":
