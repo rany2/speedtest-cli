@@ -705,8 +705,7 @@ class Speedtest:
         if config is not None:
             self.config.update(config)
 
-        self.servers = {}
-        self.closest = []
+        self.servers = []
         self._best = {}
 
         self.results = SpeedtestResults(
@@ -802,18 +801,11 @@ class Speedtest:
             }
         )
 
-        try:
-            self.lat_lon = (float(client["lat"]), float(client["lon"]))
-        except ValueError:
-            raise SpeedtestConfigError(
-                f"Unknown location: lat={client.get('lat')!r} lon={client.get('lon')!r}"
-            )
-
         printer(f"Config:\n{self.config!r}", debug=True)
 
         return self.config
 
-    def get_servers(self, servers=None, exclude=None):
+    def get_servers(self, servers=None, exclude=None, search=None):
         """Retrieve a the list of speedtest.net servers, optionally filtered
         to servers matching those specified in the ``servers`` argument
         """
@@ -834,7 +826,15 @@ class Speedtest:
                         f"{s} is an invalid server type, must be int"
                     )
 
-        url = "https://www.speedtest.net/api/js/servers?engine=js&limit=10&https_functional=true"
+        url = "https://www.speedtest.net/api/js/servers"
+        urlq = {
+            "engine": "js",
+            "https_functional": "true",
+            "limit": 10,
+        }
+        if search:
+            urlq["search"] = search
+        url = f"{url}?{urlencode(urlq)}"
 
         headers = {}
         if gzip:
@@ -867,27 +867,14 @@ class Speedtest:
             printer(f"Servers JSON:\n{serversjson}", debug=True)
 
             for server in serversjson:
-                if servers and int(server.get("id")) not in servers:
-                    continue
-
                 if (
                     int(server.get("id")) in self.config["ignore_servers"]
                     or int(server.get("id")) in exclude
                 ):
                     continue
 
-                try:
-                    d = int(server.get("distance"))
-                except Exception:
-                    continue
-
-                server["d"] = d
-
-                try:
-                    self.servers[d].append(server)
-                except KeyError:
-                    self.servers[d] = [server]
-
+                self.servers.append(server)
+ 
         except ServersRetrievalError:
             pass
 
@@ -896,35 +883,10 @@ class Speedtest:
 
         return self.servers
 
-    def get_closest_servers(self, limit=10):
-        """Limit servers to the closest speedtest.net servers based on
-        geographic distance
-        """
-
-        if not self.servers:
-            self.get_servers()
-
-        for d in sorted(self.servers.keys()):
-            for s in self.servers[d]:
-                self.closest.append(s)
-                if len(self.closest) == limit:
-                    break
-            else:
-                continue
-            break
-
-        printer(f"Closest Servers:\n{self.closest!r}", debug=True)
-        return self.closest
-
-    def get_best_server(self, servers=None):
+    def get_best_server(self):
         """Perform a speedtest.net "ping" to determine which speedtest.net
         server has the lowest latency
         """
-
-        if not servers:
-            if not self.closest:
-                servers = self.get_closest_servers()
-            servers = self.closest
 
         if self._source_address:
             source_address_tuple = (self._source_address, 0)
@@ -934,7 +896,7 @@ class Speedtest:
         user_agent = build_user_agent()
 
         results = {}
-        for server in servers:
+        for server in self.servers:
             cum = []
             url = os.path.dirname(server["url"])
             stamp = int(time.time() * 1000)
@@ -1290,6 +1252,13 @@ def parse_args():
         help="Specify a server ID to test against. Can be supplied multiple times",
     )
     parser.add_argument(
+        "--search",
+        type=str,
+        action="store",
+        nargs='*',
+        help="Search for a server with the provided string in the name",
+    )
+    parser.add_argument(
         "--exclude",
         type=int,
         action="append",
@@ -1410,6 +1379,9 @@ def shell():
     else:
         machine_format = False
 
+    if args.search:
+        args.search = " ".join(args.search)
+
     # Don't set a callback if we are running quietly
     if quiet or debug:
         callback = do_nothing
@@ -1430,23 +1402,22 @@ def shell():
 
     if args.list:
         try:
-            speedtest.get_servers()
+            speedtest.get_servers(search=args.search)
         except (ServersRetrievalError,) + HTTP_ERRORS:
             printer("Cannot retrieve speedtest server list", error=True)
             raise SpeedtestCLIError(get_exception())
 
-        for _, servers in sorted(speedtest.servers.items()):
-            for server in servers:
-                line = (
-                    "%(id)5s) %(sponsor)s (%(name)s, %(country)s) "
-                    "[%(d)d mi]" % server
-                )
-                try:
-                    printer(line)
-                except OSError:
-                    e = get_exception()
-                    if e.errno != errno.EPIPE:
-                        raise
+        for server in sorted(speedtest.servers, key=lambda s: s["distance"]):
+            line = (
+                "%(id)5s) %(sponsor)s (%(name)s, %(country)s) "
+                "[%(distance)d mi]" % server
+            )
+            try:
+                printer(line)
+            except OSError:
+                e = get_exception()
+                if e.errno != errno.EPIPE:
+                    raise
         sys.exit(0)
 
     printer(
@@ -1456,7 +1427,7 @@ def shell():
 
     printer("Retrieving speedtest.net server list...", quiet)
     try:
-        speedtest.get_servers(servers=args.server, exclude=args.exclude)
+        speedtest.get_servers(servers=args.server, exclude=args.exclude, search=args.search)
     except NoMatchedServers:
         raise SpeedtestCLIError(
             "No matched servers: %s" % ", ".join("%s" % s for s in args.server)
@@ -1479,7 +1450,7 @@ def shell():
     results = speedtest.results
 
     printer(
-        "Hosted by %(sponsor)s (%(name)s) [%(d)d mi]: "
+        "Hosted by %(sponsor)s (%(name)s) [%(distance)d mi]: "
         "%(latency)s ms" % results.server,
         quiet,
     )
