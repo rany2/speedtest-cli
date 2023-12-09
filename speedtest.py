@@ -343,6 +343,33 @@ def catch_request(request, *, opener: OpenerDirector):
         return None, e
 
 
+def catch_thread_operation(
+    *,
+    shutdown_event: threading.Event,
+    target,
+    target_args=None,
+    target_kwargs=None,
+):
+    """Helper function to catch common exceptions encountered when
+    starting a thread
+    """
+
+    if target_args is None:
+        target_args = ()
+    if target_kwargs is None:
+        target_kwargs = {}
+
+    try:
+        target(*target_args, **target_kwargs)
+    except RuntimeError as exc:
+        # if we are shutting down, don't raise exc
+        # otherwise, raise exc... this is because when
+        # we are shutting down, we cannot start any
+        # new threads since Python 3.12+
+        if not shutdown_event.is_set():
+            raise exc
+
+
 def get_response_stream(response):
     """Helper function to return either a Gzip reader if
     ``Content-Encoding`` is ``gzip`` otherwise the response itself
@@ -576,16 +603,12 @@ class SpeedtestResults:
         f.close()
 
         if int(code) != 200:
-            raise ShareResultsSubmitFailure(
-                "Could not submit results to speedtest.net"
-            )
+            raise ShareResultsSubmitFailure("Could not submit results to speedtest.net")
 
         qsargs = parse_qs(response.decode())
         resultid = qsargs.get("resultid")
         if not resultid or len(resultid) != 1:
-            raise ShareResultsSubmitFailure(
-                "Could not submit results to speedtest.net"
-            )
+            raise ShareResultsSubmitFailure("Could not submit results to speedtest.net")
 
         self._share = f"https://www.speedtest.net/result/{resultid[0]}.png"
 
@@ -955,7 +978,9 @@ class Speedtest:
         try:
             fastest = sorted(results.keys())[0]
         except IndexError:
-            raise SpeedtestBestServerFailure("Unable to connect to servers to test latency.")
+            raise SpeedtestBestServerFailure(
+                "Unable to connect to servers to test latency."
+            )
         best = results[fastest]
         best["latency"] = fastest
 
@@ -1000,7 +1025,10 @@ class Speedtest:
                 )
                 while in_flight["threads"] >= max_threads:
                     timeit.time.sleep(0.001)
-                thread.start()
+                catch_thread_operation(
+                    shutdown_event=self._shutdown_event,
+                    target=thread.start,
+                )
                 q.put(thread, True)
                 in_flight["threads"] += 1
                 callback(i, request_count)
@@ -1010,8 +1038,10 @@ class Speedtest:
         def consumer(q: Queue, request_count):
             while len(finished) < request_count:
                 thread = q.get(True)
-                while thread.is_alive():
-                    thread.join(timeout=0.001)
+                catch_thread_operation(
+                    shutdown_event=self._shutdown_event,
+                    target=thread.join,
+                )
                 in_flight["threads"] -= 1
                 finished.append(sum(thread.result))
                 callback(thread.i, request_count, end=True)
@@ -1022,12 +1052,17 @@ class Speedtest:
         )
         cons_thread = threading.Thread(target=consumer, args=(q, request_count))
         start = timeit.default_timer()
-        prod_thread.start()
-        cons_thread.start()
-        while prod_thread.is_alive():
-            prod_thread.join(timeout=0.001)
-        while cons_thread.is_alive():
-            cons_thread.join(timeout=0.001)
+        threads = (prod_thread, cons_thread)
+        for thread in threads:
+            catch_thread_operation(
+                shutdown_event=self._shutdown_event,
+                target=thread.start,
+            )
+        for thread in threads:
+            catch_thread_operation(
+                shutdown_event=self._shutdown_event,
+                target=thread.join,
+            )
 
         stop = timeit.default_timer()
         self.results.bytes_received = sum(finished)
@@ -1089,7 +1124,10 @@ class Speedtest:
                 )
                 while in_flight["threads"] >= max_threads:
                     timeit.time.sleep(0.001)
-                thread.start()
+                catch_thread_operation(
+                    shutdown_event=self._shutdown_event,
+                    target=thread.start,
+                )
                 q.put(thread, True)
                 in_flight["threads"] += 1
                 callback(i, request_count)
@@ -1099,8 +1137,10 @@ class Speedtest:
         def consumer(q: Queue, request_count):
             while len(finished) < request_count:
                 thread = q.get(True)
-                while thread.is_alive():
-                    thread.join(timeout=0.001)
+                catch_thread_operation(
+                    shutdown_event=self._shutdown_event,
+                    target=thread.join,
+                )
                 in_flight["threads"] -= 1
                 finished.append(thread.result)
                 callback(thread.i, request_count, end=True)
@@ -1111,12 +1151,17 @@ class Speedtest:
         )
         cons_thread = threading.Thread(target=consumer, args=(q, request_count))
         start = timeit.default_timer()
-        prod_thread.start()
-        cons_thread.start()
-        while prod_thread.is_alive():
-            prod_thread.join(timeout=0.1)
-        while cons_thread.is_alive():
-            cons_thread.join(timeout=0.1)
+        threads = (prod_thread, cons_thread)
+        for thread in threads:
+            catch_thread_operation(
+                shutdown_event=self._shutdown_event,
+                target=thread.start,
+            )
+        for thread in threads:
+            catch_thread_operation(
+                shutdown_event=self._shutdown_event,
+                target=thread.join,
+            )
 
         stop = timeit.default_timer()
         self.results.bytes_sent = sum(finished)
