@@ -19,7 +19,6 @@ import csv
 import errno
 import json
 import math
-import os
 import platform
 import signal
 import socket
@@ -33,7 +32,7 @@ from argparse import SUPPRESS as ARG_SUPPRESS
 from argparse import ArgumentParser as ArgParser
 from datetime import datetime, timezone
 from hashlib import md5
-from http.client import BadStatusLine, HTTPConnection, HTTPSConnection
+from http.client import BadStatusLine, HTTPSConnection
 from io import BytesIO, StringIO
 from queue import Queue
 from urllib.error import URLError
@@ -122,14 +121,6 @@ class SpeedtestBestServerFailure(SpeedtestException):
     """Unable to determine best server"""
 
 
-class SpeedtestHTTPConnection(HTTPConnection):
-    """Custom HTTPConnection to support source_address"""
-
-    def __init__(self, *args, **kwargs):
-        kwargs.pop("verify", None)
-        super().__init__(*args, **kwargs)
-
-
 class SpeedtestHTTPSConnection(HTTPSConnection):
     """Custom HTTPSConnection to support source_address"""
 
@@ -145,36 +136,13 @@ class SpeedtestHTTPSConnection(HTTPSConnection):
 
 
 def _build_connection(connection, **kwargs):
-    """Called from ``http(s)_open`` methods of ``SpeedtestHTTP(S)Handler``"""
+    """Called from ``https_open`` methods of ``SpeedtestHTTPSHandler``"""
 
     def inner(host, **kwargs_inner):
         kwargs.update(kwargs_inner)
         return connection(host, **kwargs)
 
     return inner
-
-
-class SpeedtestHTTPHandler(AbstractHTTPHandler):
-    """Custom ``HTTPHandler`` that can build a ``HTTPConnection`` with the
-    args we need for ``source_address`` and ``timeout``
-    """
-
-    def __init__(self, debuglevel=0, source_address=None, timeout=10):
-        AbstractHTTPHandler.__init__(self, debuglevel)
-        self.source_address = source_address
-        self.timeout = timeout
-
-    def http_open(self, req):
-        return self.do_open(
-            _build_connection(
-                SpeedtestHTTPConnection,
-                source_address=self.source_address,
-                timeout=self.timeout,
-            ),
-            req,
-        )
-
-    http_request = AbstractHTTPHandler.do_request_
 
 
 class SpeedtestHTTPSHandler(AbstractHTTPHandler):
@@ -223,7 +191,6 @@ def build_opener(source_address=None, timeout=10, verify=True):
 
     handlers = [
         ProxyHandler(),
-        SpeedtestHTTPHandler(source_address=source_address_tuple, timeout=timeout),
         SpeedtestHTTPSHandler(
             source_address=source_address_tuple, timeout=timeout, verify=verify
         ),
@@ -297,26 +264,6 @@ def build_request(url: str, data=None, headers=None, bump=0):
     if not headers:
         headers = {}
 
-    if url.startswith(":"):
-        scheme = "https"
-        url = f"{scheme}{url}"
-
-    urlparts = urlparse(url)
-
-    # WHO YOU GONNA CALL? CACHE BUSTERS!
-    if urlparts.scheme == "http":
-        x = f"{int(time.time() * 1000)}.{bump}"
-        query = parse_qs(urlparts.query)
-        query["x"] = x
-        urlparts = urlparts._replace(query=urlencode(query, doseq=True))
-        url = urlparts.geturl()
-
-    headers.update(
-        {
-            "Cache-Control": "no-cache",
-        }
-    )
-
     printer(f"{('GET', 'POST')[bool(data)]} {url}", debug=True)
 
     return Request(url, data=data, headers=headers)
@@ -324,7 +271,7 @@ def build_request(url: str, data=None, headers=None, bump=0):
 
 def catch_request(request, *, opener: OpenerDirector):
     """Helper function to catch common exceptions encountered when
-    establishing a connection with a HTTP/HTTPS request
+    establishing a connection with a HTTPS request
     """
 
     _open = opener.open
@@ -583,7 +530,7 @@ class SpeedtestResults:
 
         headers = {"Referer": "http://c.speedtest.net/flash/speedtest.swf"}
         request = build_request(
-            "://www.speedtest.net/api/api.php",
+            "https://www.speedtest.net/api/api.php",
             data="&".join(api_data).encode(),
             headers=headers,
         )
@@ -720,7 +667,7 @@ class Speedtest:
         if gzip:
             headers["Accept-Encoding"] = "gzip"
         request = build_request(
-            "://www.speedtest.net/speedtest-config.php", headers=headers
+            "https://www.speedtest.net/speedtest-config.php", headers=headers
         )
         uh, e = catch_request(request, opener=self._opener)
         if e:
@@ -891,7 +838,7 @@ class Speedtest:
         results = {}
         for server in self.servers:
             cum = []
-            url = os.path.dirname(server["url"])
+            url = f"https://{server['host']}"
             stamp = int(time.time() * 1000)
             latency_url = f"{url}/latency.txt?x={stamp}"
             for i in range(0, 3):
@@ -899,16 +846,11 @@ class Speedtest:
                 printer(f"GET {this_latency_url}", debug=True)
                 urlparts = urlparse(latency_url)
                 try:
-                    if urlparts[0] == "https":
-                        h = SpeedtestHTTPSConnection(
-                            urlparts[1],
-                            source_address=source_address_tuple,
-                            verify=self._verify,
-                        )
-                    else:
-                        h = SpeedtestHTTPConnection(
-                            urlparts[1], source_address=source_address_tuple
-                        )
+                    h = SpeedtestHTTPSConnection(
+                        urlparts[1],
+                        source_address=source_address_tuple,
+                        verify=self._verify,
+                    )
                     headers = {"User-Agent": user_agent}
                     path = f"{urlparts[2]}?{urlparts[4]}"
                     start = timeit.default_timer()
@@ -956,9 +898,7 @@ class Speedtest:
         urls = []
         for size in self.config["sizes"]["download"]:
             for _ in range(0, self.config["counts"]["download"]):
-                urls.append(
-                    f"{os.path.dirname(self.best['url'])}/random{size}x{size}.jpg"
-                )
+                urls.append(f"https://{self.best['host']}/random{size}x{size}.jpg")
 
         request_count = len(urls)
         requests = []
@@ -1058,7 +998,9 @@ class Speedtest:
             headers = {"Content-length": size}
             requests.append(
                 (
-                    build_request(self.best["url"], data, headers=headers),
+                    build_request(
+                        f"https://{self.best['host']}/upload.php", data, headers=headers
+                    ),
                     size,
                 )
             )
