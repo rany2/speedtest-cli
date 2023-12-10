@@ -836,6 +836,7 @@ class Speedtest:
                     host,
                     source_address=source_address_tuple,
                     verify=self._verify,
+                    timeout=self._timeout,
                 )
                 headers = {"User-Agent": user_agent}
                 h.request("GET", latency_url, headers=headers)
@@ -1198,9 +1199,9 @@ def parse_args():
     parser.add_argument("--source", help="Source IP address to bind to")
     parser.add_argument(
         "--timeout",
-        default=10,
+        default=5,
         type=float,
-        help="HTTP timeout in seconds. Default 10",
+        help="HTTP timeout in seconds. Default 5",
     )
     parser.add_argument(
         "--no-verify",
