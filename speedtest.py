@@ -21,7 +21,6 @@ import json
 import math
 import platform
 import signal
-import socket
 import ssl
 import sys
 import threading
@@ -44,10 +43,10 @@ from urllib.request import (AbstractHTTPHandler, HTTPDefaultErrorHandler,
 try:
     import gzip
 
-    GZIP_BASE = gzip.GzipFile
+    GzipBase = gzip.GzipFile
 except ImportError:
     gzip = None
-    GZIP_BASE = object
+    GzipBase = object
 
 __version__ = "2.1.4b1"
 
@@ -208,7 +207,7 @@ def build_opener(source_address=None, timeout=10, verify=True):
     return opener
 
 
-class GzipDecodedResponse(GZIP_BASE):
+class GzipDecodedResponse(GzipBase):
     """A file-like object to decode a response encoded with the gzip
     method, as described in RFC 1952.
 
@@ -255,7 +254,7 @@ def build_user_agent():
     return user_agent
 
 
-def build_request(url: str, data=None, headers=None, bump=0):
+def build_request(url: str, data=None, headers=None):
     """Build a urllib2 request object
 
     This function automatically adds a User-Agent header to all requests
@@ -339,7 +338,7 @@ def print_dots(shutdown_event: threading.Event) -> callable:
     return inner
 
 
-def do_nothing(*args, **kwargs):
+def do_nothing(*_args, **_kwargs):
     pass
 
 
@@ -694,9 +693,7 @@ class Speedtest:
         try:
             root = ET.fromstringlist(configxml_list)
         except ET.ParseError as exc:
-            raise SpeedtestConfigError(
-                f"Malformed speedtest.net configuration"
-            ) from exc
+            raise SpeedtestConfigError("Malformed speedtest.net configuration") from exc
         server_config = root.find("server-config").attrib
         download = root.find("download").attrib
         upload = root.find("upload").attrib
@@ -902,8 +899,8 @@ class Speedtest:
 
         request_count = len(urls)
         requests = []
-        for i, url in enumerate(urls):
-            requests.append(build_request(url, bump=i))
+        for url in urls:
+            requests.append(build_request(url))
 
         max_threads = threads or self.config["threads"]["download"]
         in_flight = {"threads": 0}
@@ -983,7 +980,7 @@ class Speedtest:
         request_count = self.config["upload_max"]
 
         requests = []
-        for i, size in enumerate(sizes):
+        for size in sizes:
             # We set ``0`` for ``start`` and handle setting the actual
             # ``start`` in ``HTTPUploader`` to get better measurements
             data = HTTPUploaderData(
@@ -1071,7 +1068,7 @@ def ctrl_c(shutdown_event):
     operations
     """
 
-    def inner(signum, frame):
+    def inner(_signum, _frame):
         shutdown_event.set()
         printer("\nCancelling...", error=True)
         sys.exit(0)
