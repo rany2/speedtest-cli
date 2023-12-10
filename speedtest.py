@@ -55,14 +55,14 @@ __version__ = "2.1.4b1"
 DEBUG = False
 
 # Common exceptions to catch
-CERT_ERROR = (ssl.CertificateError,)
 HTTP_ERRORS = (
-    HTTPError,
-    URLError,
-    socket.error,
-    ssl.SSLError,
     BadStatusLine,
-) + CERT_ERROR
+    HTTPError,
+    OSError,
+    ssl.CertificateError,
+    ssl.SSLError,
+    URLError,
+)
 
 
 class SpeedtestException(Exception):
@@ -1311,14 +1311,14 @@ def shell():
             verify=args.verify,
             shutdown_event=shutdown_event,
         )
-    except (ConfigRetrievalError,) + HTTP_ERRORS as exc:
+    except (*HTTP_ERRORS, ConfigRetrievalError) as exc:
         printer("Cannot retrieve speedtest configuration", error=True)
         raise SpeedtestCLIError() from exc
 
     if args.list:
         try:
             speedtest.get_servers(search=args.search, limit=args.limit)
-        except (ServersRetrievalError,) + HTTP_ERRORS as exc:
+        except (*HTTP_ERRORS, ServersRetrievalError) as exc:
             printer("Cannot retrieve speedtest server list", error=True)
             raise SpeedtestCLIError() from exc
 
@@ -1351,7 +1351,7 @@ def shell():
         raise SpeedtestCLIError(
             "No matched servers: %s" % ", ".join("%s" % s for s in args.server)
         ) from exc
-    except (ServersRetrievalError,) + HTTP_ERRORS as exc:
+    except (*HTTP_ERRORS, ServersRetrievalError) as exc:
         printer("Cannot retrieve speedtest server list", error=True)
         raise SpeedtestCLIError() from exc
     except InvalidServerIDType as exc:
