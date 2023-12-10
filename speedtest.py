@@ -28,6 +28,7 @@ import timeit
 import xml.etree.ElementTree as ET
 from argparse import SUPPRESS as ARG_SUPPRESS
 from argparse import ArgumentParser as ArgParser
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from hashlib import md5
 from http.client import BadStatusLine, HTTPSConnection
@@ -825,53 +826,57 @@ class Speedtest:
 
         user_agent = build_user_agent()
 
-        results = {}
-        for server in self.servers:
-            cum = []
+        def test_latency(server):
+            result = 3600
             host = f"{server['host']}"
             latency_url = f"https://{host}/latency.txt"
-            for _ in range(0, 3):
-                printer(f"GET {latency_url}", debug=True)
-                try:
-                    h = SpeedtestHTTPSConnection(
-                        host,
-                        source_address=source_address_tuple,
-                        verify=self._verify,
-                    )
-                    headers = {"User-Agent": user_agent}
-                    h.request("GET", latency_url, headers=headers)
-                    start = timeit.default_timer()
-                    r = h.getresponse()
-                    total = timeit.default_timer() - start
-                except HTTP_ERRORS as exc:
-                    printer(f"ERROR: {exc!r}", debug=True)
-                    cum.append(3600)
-                    continue
+            printer(f"GET {latency_url}", debug=True)
+            try:
+                h = SpeedtestHTTPSConnection(
+                    host,
+                    source_address=source_address_tuple,
+                    verify=self._verify,
+                )
+                headers = {"User-Agent": user_agent}
+                h.request("GET", latency_url, headers=headers)
+                start = timeit.default_timer()
+                r = h.getresponse()
+                total = timeit.default_timer() - start
+            except HTTP_ERRORS as exc:
+                printer(f"ERROR: {exc!r}", debug=True)
 
-                text = r.read(9)
-                if int(r.status) == 200 and text == b"test=test":
-                    cum.append(total)
-                else:
-                    cum.append(3600)
-                h.close()
+            text = r.read(9)
+            if int(r.status) == 200 and text == b"test=test":
+                result = total
+            h.close()
 
-            avg = round((sum(cum) / 6) * 1000.0, 3)
-            results[avg] = server
+            return result
 
-        try:
-            fastest = sorted(results.keys())[0]
-        except IndexError as exc:
-            raise SpeedtestBestServerFailure(
-                "Unable to connect to servers to test latency."
-            ) from exc
-        best = results[fastest]
-        best["latency"] = fastest
+        results = {}
+        with ThreadPoolExecutor() as executor:
+            iterable = self.servers * 3
+            for server, latency in zip(iterable, executor.map(test_latency, iterable)):
+                if server["id"] not in results:
+                    results[server["id"]] = []
+                results[server["id"]].append(latency)
 
-        self.results.ping = fastest
+        for server in results:
+            latency = results[server]
+            results[server] = round((sum(latency) / (len(latency) * 2)) * 1000, 3)
+            server_idx = next(
+                idx for idx, s in enumerate(self.servers) if s["id"] == server
+            )
+            self.servers[server_idx]["latency"] = results[server]
+        self.servers.sort(key=lambda s: s["latency"])
+
+        best = self.servers[0]
+        self.results.ping = best["latency"]
         self.results.server = best
 
-        self._best.update(best)
+        self._best.update(self.servers[0])
+
         printer(f"Best Server:\n{best!r}", debug=True)
+        printer(f"Sorted Servers:\n{self.servers!r}", debug=True)
         return best
 
     def download(self, callback=do_nothing, threads=None):
