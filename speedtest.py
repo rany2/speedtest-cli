@@ -1430,13 +1430,6 @@ def main():
         shell()
     except KeyboardInterrupt:
         printer("\nCancelling...", error=True)
-    except (SpeedtestException, SystemExit) as exc:
-        # Ignore a successful exit, or argparse exit
-        if getattr(exc, "code", 1) not in (0, 2):
-            msg = f"{exc}"
-            if not msg:
-                msg = f"{exc!r}"
-            raise SystemExit(f"ERROR: {msg}") from exc
 
 
 if __name__ == "__main__":
