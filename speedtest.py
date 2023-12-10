@@ -853,8 +853,8 @@ class Speedtest:
                     )
                     headers = {"User-Agent": user_agent}
                     path = f"{urlparts[2]}?{urlparts[4]}"
-                    start = timeit.default_timer()
                     h.request("GET", path, headers=headers)
+                    start = timeit.default_timer()
                     r = h.getresponse()
                     total = timeit.default_timer() - start
                 except HTTP_ERRORS as exc:
