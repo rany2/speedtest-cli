@@ -35,7 +35,7 @@ from http.client import BadStatusLine, HTTPSConnection
 from io import BytesIO, StringIO
 from queue import Queue
 from urllib.error import URLError
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, urlencode
 from urllib.request import (AbstractHTTPHandler, HTTPDefaultErrorHandler,
                             HTTPError, HTTPErrorProcessor, HTTPRedirectHandler,
                             OpenerDirector, ProxyHandler, Request)
@@ -835,22 +835,18 @@ class Speedtest:
         results = {}
         for server in self.servers:
             cum = []
-            url = f"https://{server['host']}"
-            stamp = int(time.time() * 1000)
-            latency_url = f"{url}/latency.txt?x={stamp}"
-            for i in range(0, 3):
-                this_latency_url = f"{latency_url}.{i}"
-                printer(f"GET {this_latency_url}", debug=True)
-                urlparts = urlparse(latency_url)
+            host = f"{server['host']}"
+            latency_url = f"https://{host}/latency.txt"
+            for _ in range(0, 3):
+                printer(f"GET {latency_url}", debug=True)
                 try:
                     h = SpeedtestHTTPSConnection(
-                        urlparts[1],
+                        host,
                         source_address=source_address_tuple,
                         verify=self._verify,
                     )
                     headers = {"User-Agent": user_agent}
-                    path = f"{urlparts[2]}?{urlparts[4]}"
-                    h.request("GET", path, headers=headers)
+                    h.request("GET", latency_url, headers=headers)
                     start = timeit.default_timer()
                     r = h.getresponse()
                     total = timeit.default_timer() - start
