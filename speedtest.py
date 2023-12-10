@@ -33,10 +33,9 @@ from hashlib import md5
 from http.client import BadStatusLine, HTTPSConnection
 from io import BytesIO, StringIO
 from queue import Queue
-from urllib.error import URLError
 from urllib.parse import parse_qs, urlencode
 from urllib.request import (AbstractHTTPHandler, HTTPDefaultErrorHandler,
-                            HTTPError, HTTPErrorProcessor, HTTPRedirectHandler,
+                            HTTPErrorProcessor, HTTPRedirectHandler,
                             OpenerDirector, ProxyHandler, Request)
 
 try:
@@ -55,11 +54,8 @@ DEBUG = False
 # Common exceptions to catch
 HTTP_ERRORS = (
     BadStatusLine,
-    HTTPError,
     OSError,
     ssl.CertificateError,
-    ssl.SSLError,
-    URLError,
 )
 
 
