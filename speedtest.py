@@ -17,6 +17,7 @@
 
 import csv
 import errno
+import itertools
 import json
 import math
 import signal
@@ -29,6 +30,7 @@ import xml.etree.ElementTree as ET
 from argparse import SUPPRESS as ARG_SUPPRESS
 from argparse import ArgumentParser as ArgParser
 from concurrent.futures import ThreadPoolExecutor
+from copy import copy
 from datetime import datetime, timezone
 from hashlib import md5
 from http.client import BadStatusLine, HTTPSConnection
@@ -330,6 +332,11 @@ def print_dots(shutdown_event: threading.Event) -> callable:
         sys.stdout.flush()
 
     return inner
+
+
+def repeat_elements(seq, n):
+    """Repeat elements of a sequence n times"""
+    return itertools.islice(itertools.cycle(seq), len(seq) * n)
 
 
 def do_nothing(*_args, **_kwargs):
@@ -851,8 +858,10 @@ class Speedtest:
 
         results = {}
         with ThreadPoolExecutor() as executor:
-            iterable = self.servers * 3
-            for server, latency in zip(iterable, executor.map(test_latency, iterable)):
+            ping_each_n_times = 3
+            iter_1 = repeat_elements(self.servers, ping_each_n_times)
+            iter_2 = copy(iter_1)
+            for server, latency in zip(iter_1, executor.map(test_latency, iter_2)):
                 if server["id"] not in results:
                     results[server["id"]] = []
                 results[server["id"]].append(latency)
