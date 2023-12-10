@@ -19,7 +19,6 @@ import csv
 import errno
 import json
 import math
-import platform
 import signal
 import ssl
 import sys
@@ -244,8 +243,6 @@ def build_user_agent():
 
     ua_tuple = (
         "Mozilla/5.0",
-        f"({platform.platform()}; U; {platform.architecture()[0]}; en-us)",
-        f"Python/{platform.python_version()}",
         "(KHTML, like Gecko)",
         f"speedtest-cli/{__version__}",
     )
