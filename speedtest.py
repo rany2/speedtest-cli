@@ -222,7 +222,7 @@ class GzipDecodedResponse(GzipBase):
         self.io = BytesIO()
         while True:
             chunk = response.read(1024)
-            if len(chunk) == 0:
+            if not chunk:
                 break
             self.io.write(chunk)
         self.io.seek(0)
@@ -435,9 +435,8 @@ class HTTPUploader(threading.Thread):
             if (
                 timeit.default_timer() - self.starttime
             ) <= self.timeout and not self._shutdown_event.is_set():
-                f = self._opener(request)
-                f.read(11)
-                f.close()
+                with self._opener(request) as f:
+                    f.read(11)
                 self.result = sum(self.request.data.total)
             else:
                 self.result = 0
@@ -527,13 +526,16 @@ class SpeedtestResults:
             data="&".join(api_data).encode(),
             headers=headers,
         )
-        f, e = catch_request(request, opener=self._opener)
-        if e:
-            raise ShareResultsConnectFailure(e)
 
-        response = f.read()
-        code = f.code
-        f.close()
+        try:
+            f, e = catch_request(request, opener=self._opener)
+            if e:
+                raise ShareResultsConnectFailure(e)
+
+            response = f.read()
+            code = f.code
+        finally:
+            f.close()
 
         if int(code) != 200:
             raise ShareResultsSubmitFailure("Could not submit results to speedtest.net")
@@ -662,30 +664,27 @@ class Speedtest:
         request = build_request(
             "https://www.speedtest.net/speedtest-config.php", headers=headers
         )
-        uh, e = catch_request(request, opener=self._opener)
-        if e:
-            raise ConfigRetrievalError(e)
-        configxml_list = []
 
-        stream = get_response_stream(uh)
+        try:
+            uh, e = catch_request(request, opener=self._opener)
+            if e:
+                raise ConfigRetrievalError(e)
 
-        while True:
-            try:
-                configxml_list.append(stream.read(1024))
-            except (OSError, EOFError) as exc:
-                raise ConfigRetrievalError() from exc
-            if len(configxml_list[-1]) == 0:
-                break
-        stream.close()
-        uh.close()
+            with get_response_stream(uh) as stream:
+                try:
+                    configxml = stream.read()
+                except (OSError, EOFError) as exc:
+                    raise ConfigRetrievalError() from exc
+        finally:
+            uh.close()
 
         if int(uh.code) != 200:
             return None
 
-        printer(f"Config XML list:\n{configxml_list}", debug=True)
+        printer(f"Config XML:\n{configxml}", debug=True)
 
         try:
-            root = ET.fromstringlist(configxml_list)
+            root = ET.fromstring(configxml)
         except ET.ParseError as exc:
             raise SpeedtestConfigError("Malformed speedtest.net configuration") from exc
         server_config = root.find("server-config").attrib
@@ -841,15 +840,12 @@ class Speedtest:
                 headers = {"User-Agent": user_agent}
                 h.request("GET", latency_url, headers=headers)
                 start = timeit.default_timer()
-                r = h.getresponse()
-                total = timeit.default_timer() - start
+                with h.getresponse() as r:
+                    text = r.read(9)
+                    if int(r.status) == 200 and text == b"test=test":
+                        result = timeit.default_timer() - start
             except HTTP_ERRORS as exc:
                 printer(f"ERROR: {exc!r}", debug=True)
-
-            text = r.read(9)
-            if int(r.status) == 200 and text == b"test=test":
-                result = total
-            h.close()
 
             return result
 
